@@ -204,7 +204,7 @@ impl Ignore {
             igtmp.absolute_base = Some(absolute_base.clone());
             igtmp.has_git =
                 if self.0.opts.require_git && self.0.opts.git_ignore {
-                    parent.join(".git").exists()
+                    parent.join(".git").exists() || parent.join(".sl").exists()
                 } else {
                     false
                 };
@@ -796,7 +796,7 @@ fn resolve_git_commondir(
     git_type: Option<FileType>,
 ) -> Result<PathBuf, Option<Error>> {
     let git_dir_path = || dir.join(".git");
-    let git_dir = git_dir_path();
+    let git_dir = git_dir_path()
     if !git_type.map_or(false, |ft| ft.is_file()) {
         return Ok(git_dir);
     }

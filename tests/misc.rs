@@ -578,6 +578,29 @@ rgtest!(ignore_git, |dir: Dir, mut cmd: TestCommand| {
     cmd.assert_err();
 });
 
+
+rgtest!(uses_gitignore, |dir: Dir, mut cmd: TestCommand| {
+    dir.create("file1", "hi");
+    dir.create("file2", "hi");
+    dir.create_dir(".git");
+    dir.create(".gitignore", "file1\n");
+    cmd.arg("hi");
+
+    //cmd.assert_err();
+    eqnice!("file2:hi\n", cmd.stdout());
+});
+
+rgtest!(uses_gitignore_for_sapling, |dir: Dir, mut cmd: TestCommand| {
+    dir.create("file1", "hi");
+    dir.create("file2", "hi");
+    dir.create_dir(".sl");
+    dir.create(".gitignore", "file1\n");
+    cmd.arg("hi");
+
+    //cmd.assert_err();
+    eqnice!("file1:hi\n", cmd.stdout());
+});
+
 rgtest!(ignore_generic, |dir: Dir, mut cmd: TestCommand| {
     dir.create("sherlock", SHERLOCK);
     dir.create(".ignore", "sherlock\n");

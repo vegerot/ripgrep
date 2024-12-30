@@ -434,7 +434,12 @@ _rg_types() {
   fi
 }
 
-_rg "$@"
+# don't run the completion function when being sourced by itself. See #2956
+if [[ $funcstack[1] == _rg ]] || (( ! $+functions[compdef] )); then
+  _rg "$@"
+else
+    compdef _rg rg
+fi
 
 ################################################################################
 # ZSH COMPLETION REFERENCE

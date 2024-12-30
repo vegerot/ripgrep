@@ -115,10 +115,16 @@ $ rg --generate complete-fish > "$dir/rg.fish"
 
 For **zsh**:
 
-```
+```zsh
 $ dir="$HOME/.zsh-complete"
 $ mkdir -p "$dir"
 $ rg --generate complete-zsh > "$dir/_rg"
+```
+
+or add the following to your `.zshrc`:
+
+```zsh
+$ source <(rg --generate complete-zsh) # note: this is about 4ms slower than the previous method
 ```
 
 For **PowerShell**, create the completions:

@@ -434,11 +434,14 @@ _rg_types() {
   fi
 }
 
-# don't run the completion function when being sourced by itself. See #2956
+# Don't run the completion function when being sourced by itself.
+#
+# See https://github.com/BurntSushi/ripgrep/issues/2956
+# See https://github.com/BurntSushi/ripgrep/pull/2957
 if [[ $funcstack[1] == _rg ]] || (( ! $+functions[compdef] )); then
   _rg "$@"
 else
-    compdef _rg rg
+  compdef _rg rg
 fi
 
 ################################################################################

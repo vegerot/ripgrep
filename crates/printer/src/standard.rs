@@ -27,6 +27,27 @@ use crate::{
     },
 };
 
+/// Controls how previews are shown for lines exceeding `--max-columns`.
+///
+/// This is configured on the [`StandardBuilder`] via
+/// [`StandardBuilder::max_columns_preview`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MaxColumnsPreviewMode {
+    /// Previews are disabled. Lines exceeding the max column limit are
+    /// omitted entirely (with a short message).
+    Disabled,
+    /// The preview window starts at the beginning of the line.
+    Start,
+    /// The preview window is centered on the first match in the line.
+    Center,
+}
+
+impl Default for MaxColumnsPreviewMode {
+    fn default() -> MaxColumnsPreviewMode {
+        MaxColumnsPreviewMode::Disabled
+    }
+}
+
 /// The configuration for the standard printer.
 ///
 /// This is manipulated by the StandardBuilder and then referenced by the
@@ -44,7 +65,7 @@ struct Config {
     per_match_one_line: bool,
     replacement: Arc<Option<Vec<u8>>>,
     max_columns: Option<u64>,
-    max_columns_preview: bool,
+    max_columns_preview: MaxColumnsPreviewMode,
     column: bool,
     byte_offset: bool,
     trim_ascii: bool,
@@ -69,7 +90,7 @@ impl Default for Config {
             per_match_one_line: false,
             replacement: Arc::new(None),
             max_columns: None,
-            max_columns_preview: false,
+            max_columns_preview: MaxColumnsPreviewMode::default(),
             column: false,
             byte_offset: false,
             trim_ascii: false,
@@ -313,13 +334,18 @@ impl StandardBuilder {
     /// line will be printed instead.
     ///
     /// The preview will correspond to the first `N` *grapheme clusters* of
-    /// the line, where `N` is the limit configured by `max_columns`.
+    /// the line, where `N` is the limit configured by `max_columns`, unless
+    /// [`MaxColumnsPreviewMode::Center`] is used, in which case the preview
+    /// window is centered on the first match in the line.
     ///
     /// If no limit is set, then enabling this has no effect.
     ///
     /// This is disabled by default.
-    pub fn max_columns_preview(&mut self, yes: bool) -> &mut StandardBuilder {
-        self.config.max_columns_preview = yes;
+    pub fn max_columns_preview(
+        &mut self,
+        mode: MaxColumnsPreviewMode,
+    ) -> &mut StandardBuilder {
+        self.config.max_columns_preview = mode;
         self
     }
 
@@ -591,6 +617,7 @@ impl<W: WriteColor> Standard<W> {
         || self.config.only_matching
         // Computing certain statistics requires finding each match.
         || self.config.stats
+        || self.config.max_columns_preview == MaxColumnsPreviewMode::Center
     }
 }
 
@@ -1294,25 +1321,82 @@ impl<'a, M: Matcher, W: WriteColor> StandardImpl<'a, M, W> {
         matches: &[Match],
         match_index: &mut usize,
     ) -> io::Result<()> {
-        if self.config().max_columns_preview {
+        if self.config().max_columns_preview != MaxColumnsPreviewMode::Disabled
+        {
+            let max_cols = self.config().max_columns.unwrap_or(0) as usize;
+
+            self.trim_line_terminator(bytes, &mut line);
             let original = line;
-            let end = bytes[line]
-                .grapheme_indices()
-                .map(|(_, end, _)| end)
-                .take(self.config().max_columns.unwrap_or(0) as usize)
-                .last()
-                .unwrap_or(0)
-                + line.start();
-            line = line.with_end(end);
+
+            let (preview_start, preview_end) = match self
+                .config()
+                .max_columns_preview
+            {
+                MaxColumnsPreviewMode::Start => {
+                    let end = bytes[line]
+                        .grapheme_indices()
+                        .map(|(_, end, _)| end)
+                        .take(max_cols)
+                        .last()
+                        .unwrap_or(0)
+                        + line.start();
+                    (line.start(), end)
+                }
+                MaxColumnsPreviewMode::Center => {
+                    let anchor = matches
+                        .iter()
+                        .find(|m| {
+                            m.start() >= line.start() && m.start() < line.end()
+                        })
+                        .map(|m| m.start())
+                        .unwrap_or(line.start());
+
+                    let graphemes: Vec<(usize, usize)> = bytes[line]
+                        .grapheme_indices()
+                        .map(|(s, e, _)| (s + line.start(), e + line.start()))
+                        .collect();
+
+                    if graphemes.is_empty() {
+                        (line.start(), line.start())
+                    } else {
+                        let anchor_gidx = graphemes
+                            .iter()
+                            .position(|(s, e)| anchor >= *s && anchor < *e)
+                            .unwrap_or(0);
+
+                        let half = max_cols / 2;
+                        let start_gidx = anchor_gidx.saturating_sub(half);
+                        let end_gidx =
+                            (start_gidx + max_cols).min(graphemes.len());
+                        let start_gidx =
+                            end_gidx.saturating_sub(max_cols).min(start_gidx);
+
+                        let preview_start = graphemes[start_gidx].0;
+                        let preview_end = graphemes[end_gidx - 1].1;
+                        (preview_start, preview_end)
+                    }
+                }
+                MaxColumnsPreviewMode::Disabled => unreachable!(),
+            };
+
+            line = line.with_start(preview_start).with_end(preview_end);
+            if preview_start > original.start() {
+                self.write(b"[...] ")?;
+            }
+
             self.write_colored_matches(bytes, line, matches, match_index)?;
 
             if matches.is_empty() {
-                self.write(b" [... omitted end of long line]")?;
-            } else {
+                if preview_end < original.end() {
+                    self.write(b" [... omitted end of long line]")?;
+                }
+            } else if preview_end < original.end() {
                 let remaining = matches
                     .iter()
                     .filter(|m| {
-                        m.start() >= line.end() && m.start() < original.end()
+                        (m.start() < preview_start || m.start() >= preview_end)
+                            && m.start() >= original.start()
+                            && m.start() < original.end()
                     })
                     .count();
                 let tense = if remaining == 1 { "match" } else { "matches" };
@@ -1748,7 +1832,9 @@ mod tests {
     use grep_searcher::SearcherBuilder;
     use termcolor::{Ansi, NoColor};
 
-    use super::{ColorSpecs, Standard, StandardBuilder};
+    use super::{
+        ColorSpecs, MaxColumnsPreviewMode, Standard, StandardBuilder,
+    };
 
     const SHERLOCK: &'static str = "\
 For the Doctor Watsons of this world, as opposed to the Sherlock
@@ -2496,7 +2582,7 @@ but Doctor Watson has to have it taken out for him and dusted,
         let matcher = RegexMatcher::new("exhibited|dusted").unwrap();
         let mut printer = StandardBuilder::new()
             .max_columns(Some(46))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
             .line_number(false)
@@ -2547,7 +2633,7 @@ but Doctor Watson has to have it taken out for him and dusted,
         let mut printer = StandardBuilder::new()
             .stats(true)
             .max_columns(Some(46))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
             .line_number(false)
@@ -2573,7 +2659,7 @@ and exhibited clearly, with a label attached.
         let mut printer = StandardBuilder::new()
             .stats(true)
             .max_columns(Some(46))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
             .line_number(false)
@@ -2600,7 +2686,7 @@ and exhibited clearly, with a label attached.
         let mut printer = StandardBuilder::new()
             .stats(true)
             .max_columns(Some(46))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
             .line_number(false)
@@ -2653,7 +2739,7 @@ but Doctor Watson has to have it taken out for him and dusted,
         let mut printer = StandardBuilder::new()
             .stats(true)
             .max_columns(Some(46))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
             .line_number(false)
@@ -3114,7 +3200,7 @@ line 3 x
         let mut printer = StandardBuilder::new()
             .only_matching(true)
             .max_columns(Some(10))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .column(true)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
@@ -3180,7 +3266,7 @@ line 3 x
         let mut printer = StandardBuilder::new()
             .only_matching(true)
             .max_columns(Some(10))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .column(true)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
@@ -3240,7 +3326,7 @@ line 3 x
         let mut printer = StandardBuilder::new()
             .only_matching(true)
             .max_columns(Some(50))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .column(true)
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
@@ -3620,7 +3706,7 @@ line 3 x
         let matcher = RegexMatcher::new(r"Sherlock|Doctor (\w+)").unwrap();
         let mut printer = StandardBuilder::new()
             .max_columns(Some(67))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .replacement(Some(b"doctah $1 MD".to_vec()))
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()
@@ -3648,7 +3734,7 @@ line 3 x
             RegexMatcher::new("exhibited|dusted|has to have it").unwrap();
         let mut printer = StandardBuilder::new()
             .max_columns(Some(43))
-            .max_columns_preview(true)
+            .max_columns_preview(MaxColumnsPreviewMode::Start)
             .replacement(Some(b"xxx".to_vec()))
             .build(NoColor::new(vec![]));
         SearcherBuilder::new()

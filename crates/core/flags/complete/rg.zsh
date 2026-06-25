@@ -188,7 +188,7 @@ _rg() {
     '(text)--null-data[use NUL as line terminator]'
 
     + '(max-columns-preview)' # max column preview options
-    '--max-columns-preview[show preview for long lines (with -M)]'
+    '--max-columns-preview[show preview for long lines (with -M)]:mode:(start center)'
     $no"--no-max-columns-preview[don't show preview for long lines (with -M)]"
 
     + '(max-depth)' # Directory-depth options

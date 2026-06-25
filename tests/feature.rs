@@ -681,7 +681,7 @@ rgtest!(f917_trim_max_columns_normal, |dir: Dir, mut cmd: TestCommand| {
     dir.create("haystack", HAYSTACK);
     cmd.args(&[
         "--trim",
-        "--max-columns-preview",
+        "--max-columns-preview=start",
         "-M8",
         "--no-filename",
         "abc",
@@ -696,7 +696,7 @@ rgtest!(f917_trim_max_columns_matches, |dir: Dir, mut cmd: TestCommand| {
     dir.create("haystack", HAYSTACK);
     cmd.args(&[
         "--trim",
-        "--max-columns-preview",
+        "--max-columns-preview=start",
         "-M8",
         "--color=always",
         "--colors=path:none",
@@ -716,7 +716,7 @@ rgtest!(
         cmd.args(&[
             "--multiline",
             "--trim",
-            "--max-columns-preview",
+            "--max-columns-preview=start",
             "-M8",
             // Force the "slow" printing path without actually
             // putting colors in the output.
@@ -739,7 +739,7 @@ rgtest!(
         cmd.args(&[
             "--multiline",
             "--trim",
-            "--max-columns-preview",
+            "--max-columns-preview=start",
             "-M8",
             "--only-matching",
             "--no-filename",
@@ -759,7 +759,7 @@ rgtest!(
         cmd.args(&[
             "--multiline",
             "--trim",
-            "--max-columns-preview",
+            "--max-columns-preview=start",
             "-M8",
             "--vimgrep",
             "--no-filename",
@@ -789,7 +789,7 @@ rgtest!(f1078_max_columns_preview1, |dir: Dir, mut cmd: TestCommand| {
     dir.create("sherlock", SHERLOCK);
     cmd.args(&[
         "-M46",
-        "--max-columns-preview",
+        "--max-columns-preview=start",
         "exhibited|dusted|has to have it",
     ]);
 
@@ -804,7 +804,7 @@ rgtest!(f1078_max_columns_preview2, |dir: Dir, mut cmd: TestCommand| {
     dir.create("sherlock", SHERLOCK);
     cmd.args(&[
         "-M43",
-        "--max-columns-preview",
+        "--max-columns-preview=start",
         // Doing a replacement forces ripgrep to show the number of remaining
         // matches. Normally, this happens by default when printing a tty with
         // colors.
@@ -817,6 +817,78 @@ sherlock:but Doctor Watson xxx taken out for him and [... 1 more match]
 sherlock:and xxx clearly, with a label attached.
 ";
     eqnice!(expected, cmd.stdout());
+});
+
+rgtest!(
+    max_columns_preview_center_middle,
+    |dir: Dir, mut cmd: TestCommand| {
+        const HAYSTACK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMATCHbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
+        dir.create("haystack", HAYSTACK);
+        cmd.args(&[
+            "--max-columns-preview=center",
+            "-M20",
+            "--no-filename",
+            "MATCH",
+        ]);
+
+        let expected = "[...] aaaaaaaaaaMATCHbbbbb [... 0 more matches]\n";
+        eqnice!(expected, cmd.stdout());
+    }
+);
+
+rgtest!(
+    max_columns_preview_center_near_start,
+    |dir: Dir, mut cmd: TestCommand| {
+        const HAYSTACK: &str = "MATCHbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
+        dir.create("haystack", HAYSTACK);
+        cmd.args(&[
+            "--max-columns-preview=center",
+            "-M20",
+            "--no-filename",
+            "MATCH",
+        ]);
+
+        let expected = "MATCHbbbbbbbbbbbbbbb [... 0 more matches]\n";
+        eqnice!(expected, cmd.stdout());
+    }
+);
+
+rgtest!(
+    max_columns_preview_center_near_end,
+    |dir: Dir, mut cmd: TestCommand| {
+        const HAYSTACK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMATCH\n";
+        dir.create("haystack", HAYSTACK);
+        cmd.args(&[
+            "--max-columns-preview=center",
+            "-M20",
+            "--no-filename",
+            "MATCH",
+        ]);
+
+        let expected = "[...] aaaaaaaaaaaaaaaMATCH\n";
+        eqnice!(expected, cmd.stdout());
+    }
+);
+
+rgtest!(max_columns_preview_disable, |dir: Dir, mut cmd: TestCommand| {
+    const HAYSTACK: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaMATCHbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n";
+    dir.create("haystack", HAYSTACK);
+    cmd.args(&[
+        "--max-columns-preview=center",
+        "--no-max-columns-preview",
+        "-M20",
+        "--no-filename",
+        "MATCH",
+    ]);
+
+    let expected = "[Omitted long matching line]\n";
+    eqnice!(expected, cmd.stdout());
+});
+
+rgtest!(max_columns_preview_invalid, |dir: Dir, mut cmd: TestCommand| {
+    dir.create("haystack", "anything\n");
+    cmd.args(&["--max-columns-preview=invalid", "anything"]);
+    cmd.assert_err();
 });
 
 // See: https://github.com/BurntSushi/ripgrep/issues/1138

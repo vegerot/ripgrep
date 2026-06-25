@@ -12,6 +12,14 @@ use {
     grep::printer::{HyperlinkFormat, UserColorSpec},
 };
 
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) enum MaxColumnsPreviewMode {
+    #[default]
+    Disabled,
+    Start,
+    Center,
+}
+
 /// A collection of "low level" arguments.
 ///
 /// The "low level" here is meant to constrain this type to be as close to the
@@ -69,7 +77,7 @@ pub(crate) struct LowArgs {
     pub(crate) line_number: Option<bool>,
     pub(crate) logging: Option<LoggingMode>,
     pub(crate) max_columns: Option<u64>,
-    pub(crate) max_columns_preview: bool,
+    pub(crate) max_columns_preview: MaxColumnsPreviewMode,
     pub(crate) max_count: Option<u64>,
     pub(crate) max_depth: Option<usize>,
     pub(crate) max_filesize: Option<u64>,

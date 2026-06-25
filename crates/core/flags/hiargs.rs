@@ -65,7 +65,7 @@ pub(crate) struct HiArgs {
     is_terminal_stdout: bool,
     line_number: bool,
     max_columns: Option<u64>,
-    max_columns_preview: bool,
+    max_columns_preview: grep::printer::MaxColumnsPreviewMode,
     max_count: Option<u64>,
     max_depth: Option<usize>,
     max_filesize: Option<u64>,
@@ -282,7 +282,17 @@ impl HiArgs {
             is_terminal_stdout: state.is_terminal_stdout,
             line_number,
             max_columns: low.max_columns,
-            max_columns_preview: low.max_columns_preview,
+            max_columns_preview: match low.max_columns_preview {
+                crate::flags::lowargs::MaxColumnsPreviewMode::Disabled => {
+                    grep::printer::MaxColumnsPreviewMode::Disabled
+                }
+                crate::flags::lowargs::MaxColumnsPreviewMode::Start => {
+                    grep::printer::MaxColumnsPreviewMode::Start
+                }
+                crate::flags::lowargs::MaxColumnsPreviewMode::Center => {
+                    grep::printer::MaxColumnsPreviewMode::Center
+                }
+            },
             max_count: low.max_count,
             max_depth: low.max_depth,
             max_filesize: low.max_filesize,

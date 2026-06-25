@@ -3820,7 +3820,7 @@ struct MaxColumnsPreview;
 
 impl Flag for MaxColumnsPreview {
     fn is_switch(&self) -> bool {
-        true
+        false
     }
     fn name_long(&self) -> &'static str {
         "max-columns-preview"
@@ -3828,11 +3828,17 @@ impl Flag for MaxColumnsPreview {
     fn name_negated(&self) -> Option<&'static str> {
         Some("no-max-columns-preview")
     }
+    fn doc_variable(&self) -> Option<&'static str> {
+        Some("MODE")
+    }
+    fn doc_choices(&self) -> &'static [&'static str] {
+        &["start", "center"]
+    }
     fn doc_category(&self) -> Category {
         Category::Output
     }
     fn doc_short(&self) -> &'static str {
-        r"Show preview for lines exceeding the limit."
+        r"Show preview for long lines (start|center)."
     }
     fn doc_long(&self) -> &'static str {
         r"
@@ -3844,12 +3850,37 @@ line was removed. When this flag is combined with \flag{max-columns}, a preview
 of the line (corresponding to the limit size) is shown instead, where the part
 of the line exceeding the limit is not shown.
 .sp
+The \fIMODE\fP argument controls where the preview window is positioned:
+.TP
+.BR start
+Show the first \fIN\fP grapheme clusters of the line, where \fIN\fP is the
+limit configured by \flag{max-columns}.
+.TP
+.BR center
+Center the preview window on the first match in the line, showing context
+on both sides of the match. If the match is near the beginning or end of
+the line, the window is adjusted to show as much context as possible.
+.sp
 If the \flag{max-columns} flag is not set, then this has no effect.
 "
     }
 
     fn update(&self, v: FlagValue, args: &mut LowArgs) -> anyhow::Result<()> {
-        args.max_columns_preview = v.unwrap_switch();
+        use crate::flags::lowargs::MaxColumnsPreviewMode;
+
+        args.max_columns_preview = match v {
+            FlagValue::Switch(true) => MaxColumnsPreviewMode::Start,
+            FlagValue::Switch(false) => MaxColumnsPreviewMode::Disabled,
+            FlagValue::Value(v) => match v.to_str() {
+                Some("start") => MaxColumnsPreviewMode::Start,
+                Some("center") => MaxColumnsPreviewMode::Center,
+                _ => anyhow::bail!(
+                    "invalid value for --max-columns-preview: {:?}\n\
+                         Valid values are: start, center",
+                    v
+                ),
+            },
+        };
         Ok(())
     }
 }
@@ -3857,16 +3888,33 @@ If the \flag{max-columns} flag is not set, then this has no effect.
 #[cfg(test)]
 #[test]
 fn test_max_columns_preview() {
+    use crate::flags::lowargs::MaxColumnsPreviewMode;
+
     let args = parse_low_raw(None::<&str>).unwrap();
-    assert_eq!(false, args.max_columns_preview);
+    assert_eq!(MaxColumnsPreviewMode::Disabled, args.max_columns_preview);
 
-    let args = parse_low_raw(["--max-columns-preview"]).unwrap();
-    assert_eq!(true, args.max_columns_preview);
+    let args = parse_low_raw(["--max-columns-preview=start"]).unwrap();
+    assert_eq!(MaxColumnsPreviewMode::Start, args.max_columns_preview);
 
-    let args =
-        parse_low_raw(["--max-columns-preview", "--no-max-columns-preview"])
-            .unwrap();
-    assert_eq!(false, args.max_columns_preview);
+    let args = parse_low_raw(["--max-columns-preview=center"]).unwrap();
+    assert_eq!(MaxColumnsPreviewMode::Center, args.max_columns_preview);
+
+    let args = parse_low_raw([
+        "--max-columns-preview=start",
+        "--no-max-columns-preview",
+    ])
+    .unwrap();
+    assert_eq!(MaxColumnsPreviewMode::Disabled, args.max_columns_preview);
+
+    let args = parse_low_raw(["--max-columns-preview", "start"]).unwrap();
+    assert_eq!(MaxColumnsPreviewMode::Start, args.max_columns_preview);
+
+    let err = parse_low_raw(["--max-columns-preview=invalid"]).unwrap_err();
+    let msg = format!("{err:#}");
+    assert!(
+        msg.contains("invalid"),
+        "expected error about invalid value, got: {msg}",
+    );
 }
 
 /// -m/--max-count
